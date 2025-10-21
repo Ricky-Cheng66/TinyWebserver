@@ -82,14 +82,13 @@ int main()
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                     continue;
                 }
-                std::string pathOut{};
-                bool ret = parseRequestLine(buf, pathOut);
-                if (!ret)
+                std::optional<std::string> opt = parseRequestLine(buf);
+                if (!opt.has_value())
                 {
                     close(fd);
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                 }
-                std::string resp = buildResponse(pathOut);
+                std::string resp = buildResponse(opt);
                 /* 发回并关闭连接 */
                 ssize_t nwrite = write(fd, resp.c_str(), resp.size());
                 if (nwrite < 0)

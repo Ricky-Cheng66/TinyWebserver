@@ -1,4 +1,6 @@
 #include "server.hpp"
 #include <fstream>
 #include <sstream>
-std::string buildResponse(const std::string& path);
+#include <optional>
+std::string buildResponse(std::optional<std::string> opt);
+
