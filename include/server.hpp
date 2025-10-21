@@ -8,5 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <string.h>
+#include <string>
+#include <string_view>
 
 bool setNonBlock(int socketFd);

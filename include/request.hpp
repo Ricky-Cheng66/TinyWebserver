@@ -1,2 +1,4 @@
 #include "server.hpp"
-bool parseRequestLine(const char* firstLine, std::string& pathOut);
+#include <string>
+#include <string_view>
+bool parseRequestLine(std::string_view bufView, std::string& pathOut);

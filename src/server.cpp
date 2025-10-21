@@ -76,16 +76,14 @@ int main()
                     continue;
                 }
                 buf[nread] = '\0';
-                /* 只取第一行 */
-                char *first = strtok(buf, "\r\n");
-                if (!first)
+                if (!buf)
                 { // 格式异常
                     close(fd);
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                     continue;
                 }
                 std::string pathOut{};
-                bool ret = parseRequestLine(first, pathOut);
+                bool ret = parseRequestLine(buf, pathOut);
                 if (!ret)
                 {
                     close(fd);
