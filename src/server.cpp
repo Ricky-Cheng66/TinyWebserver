@@ -82,13 +82,15 @@ int main()
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                     continue;
                 }
-                std::optional<std::string> opt = parseRequestLine(buf);
-                if (!opt.has_value())
+                std::optional<std::string> ret_path = parseRequestLine(buf);
+                if (!ret_path.has_value())
                 {
                     close(fd);
                     epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
                 }
-                std::string resp = buildResponse(opt);
+                std::optional<fs::path> requested_path = parse_request_path(ret_path);
+
+                std::string resp = buildResponse(requested_path.value().string());
                 /* 发回并关闭连接 */
                 ssize_t nwrite = write(fd, resp.c_str(), resp.size());
                 if (nwrite < 0)
