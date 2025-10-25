@@ -1,11 +1,7 @@
 #pragma once
-class Socket {
+class Socket 
+{
 public:
-  // 服务器Socket单例
-  // static Socket &get_server_socket_instance() {
-  //   static Socket server_socket{};
-  //   return server_socket;
-  // }
   Socket() = default;
   ~Socket() = default;
   int create_server_socket();

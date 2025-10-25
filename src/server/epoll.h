@@ -1,5 +1,6 @@
 #pragma once
 #include <sys/epoll.h>
+#include <mutex>
 class Epoll {
 public:
   //单例访问方法
@@ -16,7 +17,6 @@ public:
   bool delete_epoll(int fd);
   void modify_epoll();
   int wait_events(struct epoll_event *evs, int timeout);
-  // bool events_loop();
   //获取内部状态
   int get_epoll_fd() const { return epfd_; }
   bool is_initialized() const { return (epfd_ != -1); }
@@ -28,4 +28,5 @@ private:
   int max_events_ = 64;
   int epfd_ = -1;
   int server_fd_{};
+  std::mutex epoll_mutex_;
 };

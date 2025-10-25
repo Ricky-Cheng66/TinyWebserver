@@ -64,7 +64,8 @@
         "--compile-commands-dir=${workspaceFolder}",
         "--background-index",
         "--clang-tidy",
-        "--header-insertion=never"
+        "--header-insertion=never",
+        "--format-style=google"  // 添加这一行！
     ],
     
     "editor.formatOnSave": true,

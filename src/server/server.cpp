@@ -12,6 +12,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <system_error>
 
 bool Server::init(int server_port) {
   // socket部分
@@ -21,7 +22,8 @@ bool Server::init(int server_port) {
   server_fd_ = server_socket.create_server_socket();
   //设置地址重用
   if (!server_socket.set_socket_option(server_fd_)) {
-    std::cerr << "set_socket_option failed..." << std::endl;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "set_socket_option failed..." << ec.message() <<  std::endl;
   }
   // set listenFd nonblock
   server_socket.set_nonblock(server_fd_);
@@ -65,7 +67,8 @@ bool Server::start() {
           if (errno == EAGAIN || errno == EMFILE) {
             continue; // 资源暂时不可用
           }
-          std::cerr << "accept failed..." << std::endl;
+          std::error_code ec(errno, std::system_category());
+          std::cerr << "accept failed..." << ec.message() << std::endl;
           continue;
         }
         Socket client_socket{};
@@ -102,7 +105,8 @@ bool Server::start() {
         /* 发回并关闭连接 */
         ssize_t nwrite = write(fd, resp.c_str(), resp.size());
         if (nwrite < 0) {
-          std::cerr << "write failed..." << std::endl;
+          std::error_code ec(errno, std::system_category());
+          std::cerr << "write failed..." << ec.message() << std::endl;
           continue;
         }
         ep.delete_epoll(fd);

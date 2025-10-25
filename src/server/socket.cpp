@@ -4,12 +4,14 @@
 #include <iostream>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <system_error>
 int Socket::create_server_socket() {
   // create server_fd
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
-    std::cerr << "socket failed..." << std::endl;
-    return false;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "socket failed..." << ec.message() << std::endl;
+    return -1;
   }
   return server_fd;
 }
@@ -21,7 +23,8 @@ bool Socket::bind_server_socket(int fd, int port) {
   server_addr_in.sin_port = htons(port);
   socklen_t server_len = sizeof(server_addr_in);
   if (bind(fd, (sockaddr *)&server_addr_in, server_len) < 0) {
-    std::cerr << "bind failed..." << std::endl;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "bind failed..." << ec.message() << std::endl;
     return false;
   }
   return true;
@@ -31,13 +34,16 @@ int Socket::accept_socket(int server_fd) {
   socklen_t client_len = sizeof(client_addr);
   int client_fd = accept(server_fd, (sockaddr *)&client_addr, &client_len);
   if (client_fd < 0) {
-    std::cerr << "accept failed..." << std::endl;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "accept failed..." << ec.message() << std::endl;
+    return -1;
   }
   return client_fd;
 }
 bool Socket::listen_socket(int fd) {
   if (listen(fd, max_clients) < 0) {
-    std::cerr << "listen failed..." << std::endl;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "listen failed..." << ec.message() << std::endl;
     return false;
   }
   return true;
@@ -46,21 +52,23 @@ bool Socket::set_socket_option(int fd) {
   // set REUSADDR
   int opt = 1;
   if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-    std::cerr << "setsockopt failed..." << std::endl;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "setsockopt failed..." << ec.message() << std::endl;
     return false;
   }
   return true;
 }
 
-bool Socket::set_nonblock(int socketFd) {
-  int flags = fcntl(socketFd, F_GETFL, 0);
+bool Socket::set_nonblock(int socket_fd) {
+  int flags = fcntl(socket_fd, F_GETFL, 0);
   if (flags < 0) {
-    std::cerr << "fcntl F_GETFL failed..." << std::endl;
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "F_GETFL failed..." << ec.message() << std::endl;
     return false;
   }
-  fcntl(socketFd, F_SETFL, flags | O_NONBLOCK);
-  if (flags < 0) {
-    std::cerr << "fcntl F_SETFL failed..." << std::endl;
+  if (fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "F_SETFL failed..." << ec.message() << std::endl;
     return false;
   }
   return true;
