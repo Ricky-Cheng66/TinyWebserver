@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.16)
+project(tinywebserver CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# 递归搜源文件（同你 Makefile）
+file(GLOB_RECURSE SRCS src/*.cpp)
+
+# 告诉编译器：头文件在 src/ 下
+include_directories(src)
+
+# 生成可执行文件
+add_executable(server ${SRCS})
+
+# 可选：一键调试配置
+set(CMAKE_BUILD_TYPE Debug)

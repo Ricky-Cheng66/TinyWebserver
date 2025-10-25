@@ -1,0 +1,12 @@
+[
+    {
+        "directory": "/home/liuliuqiu/tinywebserver",
+        "command": "g++ -std=c++20 -I. -I./src -c ${file}",
+        "file": "**/*.cpp"
+    },
+    {
+        "directory": "/home/liuliuqiu/tinywebserver", 
+        "command": "g++ -std=c++20 -I. -I./src -x c++-header ${file}",
+        "file": "**/*.h"
+    }
+]
