@@ -12,7 +12,7 @@ int main() {
   //启动Server
   if (!server.start()) {
     std::error_code ec(errno, std::system_category());
-    std::cerr << "server start failed" << ec.message() <<  std::endl;
+    std::cerr << "server start failed... " << ec.message() << std::endl;
     return -1;
   }
   return 0;

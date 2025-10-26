@@ -1,8 +1,3 @@
-#include "server.h"
-#include "../http/request.h"
-#include "../http/response.h"
-#include "epoll.h"
-#include "socket.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <iostream>
@@ -11,8 +6,14 @@
 #include <string_view>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <unistd.h>
 #include <system_error>
+#include <unistd.h>
+
+#include "../http/http_request.h"
+#include "../http/http_response.h"
+#include "epoll.h"
+#include "server.h"
+#include "socket.h"
 
 bool Server::init(int server_port) {
   // socket部分
@@ -23,7 +24,7 @@ bool Server::init(int server_port) {
   //设置地址重用
   if (!server_socket.set_socket_option(server_fd_)) {
     std::error_code ec(errno, std::system_category());
-    std::cerr << "set_socket_option failed..." << ec.message() <<  std::endl;
+    std::cerr << "set_socket_option failed..." << ec.message() << std::endl;
   }
   // set listenFd nonblock
   server_socket.set_nonblock(server_fd_);
@@ -90,18 +91,21 @@ bool Server::start() {
           continue;
         }
         buf[nread] = '\0';
-        Request request{};
-        std::optional<std::string> ret_path = request.parse_request_line(buf);
-        if (!ret_path.has_value()) {
+        HttpRequest request{};
+        if (!request.parse(buf)) {
+          std::cout << "HTTP 解析失败，关闭连接" << std::endl;
           ep.delete_epoll(fd);
           close(fd);
           continue;
         }
-        std::optional<fs::path> requested_path =
-            request.parse_request_path(ret_path);
-        Response response;
-        std::string resp =
-            response.build_response(requested_path.value().string());
+        auto file_path = request.parse_request_path();
+        if (!file_path) {
+          ep.delete_epoll(fd);
+          close(fd);
+          continue;
+        }
+        HttpResponse response;
+        std::string resp = response.build_response(file_path.value().string());
         /* 发回并关闭连接 */
         ssize_t nwrite = write(fd, resp.c_str(), resp.size());
         if (nwrite < 0) {

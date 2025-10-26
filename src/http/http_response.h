@@ -5,9 +5,9 @@
 #include <span>
 #include <sstream>
 #include <sys/mman.h>
-class Response {
+class HttpResponse {
 public:
-  Response() = default;
-  ~Response() = default;
+  HttpResponse() = default;
+  ~HttpResponse() = default;
   std::string build_response(std::optional<std::string> opt);
 };

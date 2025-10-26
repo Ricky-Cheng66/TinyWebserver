@@ -1,5 +1,5 @@
-#include "response.h"
-std::string Response::build_response(std::optional<std::string> opt) {
+#include "http_response.h"
+std::string HttpResponse::build_response(std::optional<std::string> opt) {
   if (!opt.has_value()) {
     return "<h1>404 Not Found</h1>";
   }
