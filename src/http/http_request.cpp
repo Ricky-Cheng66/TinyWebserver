@@ -1,16 +1,178 @@
 #include "http_request.h"
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <sstream>
 #include <string>
 namespace fs = std::filesystem;
+HttpRequest::HttpRequest() { reset(); }
+
+std::error_code HttpRequest::parse_chunk(std::string_view data, size_t length) {
+  if (state_ == ParseState::COMPLETE || state_ == ParseState::ERROR) {
+    return std::make_error_code(std::errc::invalid_argument);
+  }
+  // 添加到缓冲区
+  buffer_.append(data, length);
+  size_t consumed = 0;
+  std::error_code ec;
+
+  while (consumed < buffer_.length() && state_ != ParseState::COMPLETE &&
+         state_ != ParseState::ERROR) {
+    size_t prev_consumed = consumed;
+
+    switch (state_) {
+    case ParseState::START:
+      ec = handle_start(buffer_.data() + consumed, buffer_.length() - consumed,
+                        consumed);
+      break;
+    case ParseState::REQUEST_LINE:
+      ec = handle_request_line(buffer_.data() + consumed,
+                               buffer_.length() - consumed, consumed);
+      break;
+    case ParseState::HEADERS:
+      ec = handle_headers(buffer_.data() + consumed,
+                          buffer_.length() - consumed, consumed);
+      break;
+    case ParseState::BODY:
+      ec = handle_body(buffer_.data() + consumed, buffer_.length() - consumed,
+                       consumed);
+      break;
+    default:
+      ec = std::make_error_code(std::errc::invalid_argument);
+      break;
+    }
+
+    if (ec) {
+      state_ = ParseState::ERROR;
+      return ec;
+    }
+
+    // 如果没有消费任何数据，避免无限循环
+    if (consumed == prev_consumed) {
+      break;
+    }
+  }
+
+  // 移除已处理的数据
+  if (consumed > 0) {
+    buffer_.erase(0, consumed);
+  }
+
+  return ec;
+}
+std::error_code HttpRequest::handle_start(std::string_view data, size_t length,
+                                          size_t &consumed) {
+  state_ = ParseState::REQUEST_LINE;
+  consumed = 0;
+  return {};
+}
+
+std::error_code HttpRequest::handle_request_line(std::string_view data,
+                                                 size_t length,
+                                                 size_t &consumed) {
+  // 查找行结束
+  const size_t line_end_pos = data.find('\n');
+  if (line_end_pos == std::string_view::npos) {
+    return {}; // 需要更多数据
+  }
+  //去除可能的'\r'
+  std::string_view line_view = data.substr(0, line_end_pos);
+  if (!line_view.empty() && line_view.back() == '\r') {
+    line_view.remove_suffix(1); //去除回车符
+  }
+  // 解析请求行
+  const std::string request_line{line_view};
+  std::istringstream iss(request_line);
+  std::string method_str, path_str, version_str;
+  if (!(iss >> method_str >> path_str >> version_str)) {
+    return std::make_error_code(std::errc::protocol_error);
+  }
+  method_ = transfer_to_method(method_str);
+  path_ = std::move(path_str);
+  version_ = transfer_to_version(version_str);
+
+  if (method_ == Method::UNKNOWN || version_ == Version::UNKNOWN) {
+    return std::make_error_code(std::errc::protocol_error);
+  }
+
+  // 默认文件
+  if (path_ == "/") {
+    path_ = "/index.html";
+  }
+
+  consumed = line_end_pos + 1; // +1 for '\n'
+  state_ = ParseState::HEADERS;
+  return {};
+}
+
+std::error_code HttpRequest::handle_headers(std::string_view data,
+                                            size_t length, size_t &consumed) {
+  size_t pos = 0;
+  while (pos < data.length()) {
+    // 查找行结束
+    size_t line_end_pos = data.find('\n', pos);
+    if (line_end_pos == std::string_view::npos) {
+      break; // 需要更多数据
+    }
+
+    std::string_view line = data.substr(pos, line_end_pos - pos);
+    if (!line.empty() && line.back() == '\r') {
+      line.remove_suffix(1); // 去掉回车符
+    }
+
+    // 空行表示头部结束
+    if (line.empty()) {
+      consumed = line_end_pos + 1; //消费空行+'\n'
+
+      // 检查是否有body
+      content_length_ = get_content_length();
+      if (content_length_ > 0) {
+        state_ = ParseState::BODY;
+      } else {
+        state_ = ParseState::COMPLETE;
+      }
+      return {};
+    }
+
+    // 解析头部行
+    size_t colon_pos = line.find(':');
+    if (colon_pos != std::string_view::npos) {
+      std::string_view key_view = line.substr(0, colon_pos);
+      std::string_view value_view = line.substr(colon_pos + 1);
+
+      // 清理空格
+      key_view = trim_whitespace(key_view);
+      value_view = trim_whitespace(value_view);
+
+      //转换键名为小写并存储
+      std::string key = to_lower_case(key_view);
+    }
+  }
+
+  return {};
+}
+
+std::error_code HttpRequest::handle_body(const char *data, size_t length,
+                                         size_t &consumed) {
+  size_t needed = content_length_ - body_.length();
+  size_t to_copy = std::min(needed, length);
+
+  body_.append(data, to_copy);
+  consumed = to_copy;
+
+  if (body_.length() >= content_length_) {
+    state_ = ParseState::COMPLETE;
+  }
+
+  return {};
+}
+
 bool HttpRequest::parse(const std::string_view raw_request) {
-  reset();
   std::cout << "调试: 收到数据长度=" << raw_request.length() << std::endl;
   std::cout << "调试: 数据=[" << raw_request << "]" << std::endl;
   //分割请求行 请求头 请求体
   auto request_line_end = raw_request.find("\r\n");
-  if (request_line_end == std::string::npos) {
+  if (request_line_end == std::string_view::npos) {
     std::cout << "错误: 找不到请求行结束" << std::endl;
     return false;
   }
@@ -28,10 +190,10 @@ bool HttpRequest::parse(const std::string_view raw_request) {
     return true;
   }
   auto request_header_end = raw_request.find("\r\n\r\n", request_header_start);
-  if (request_header_end == std::string::npos) {
+  if (request_header_end == std::string_view::npos) {
     // 尝试其他结束标记
     request_header_end = raw_request.find("\n\n", request_header_start);
-    if (request_header_end == std::string::npos) {
+    if (request_header_end == std::string_view::npos) {
       // 如果没有明确的结束标记，认为整个剩余部分都是头部
       request_header_end = raw_request.length();
     }
@@ -63,21 +225,26 @@ bool HttpRequest::parse_request_line(const std::string_view request_line) {
   auto sp1 = request_line.find(' ');
   auto sp2 = request_line.find(' ', sp1 + 1);
   std::cout << "sp1=" << sp1 << ", sp2=" << sp2 << std::endl;
-  if (sp1 == std::string::npos || sp2 == std::string::npos) {
+  if (sp1 == std::string_view::npos || sp2 == std::string_view::npos) {
     std::cout << "错误: 找不到空格分隔符" << std::endl;
     return false;
   }
   auto method{request_line.substr(0, sp1)};
-  auto path{request_line.substr(sp1 + 1, sp2 - sp1 - 1)};
-  auto version{request_line.substr(sp2 + 1)};
-  std::cout << "method=[" << method << "], path=[" << path << "], version=["
-            << version << "]" << std::endl;
   method_ = transfer_to_method(method);
-  path_ = static_cast<std::string>(path);
+
+  auto path{request_line.substr(sp1 + 1, sp2 - sp1 - 1)};
+  //分离查询字符串
+  size_t query_pos = path.find('?');
+  if (query_pos != std::string_view::npos) {
+    path_ = static_cast<std::string>(path.substr(0, query_pos));
+    query_string_ = static_cast<std::string>(path.substr(query_pos));
+  } else {
+    path_ = static_cast<std::string>(path);
+    query_string_.clear();
+  }
+
+  auto version{request_line.substr(sp2 + 1)};
   version_ = transfer_to_version(version);
-  std::cout << "转换后: method=" << static_cast<int>(method_)
-            << ", path=" << path_ << ", version=" << static_cast<int>(version_)
-            << std::endl;
 
   /* 默认文件 */
   if (path_ == "/") {
@@ -93,7 +260,7 @@ bool HttpRequest::parse_request_header(const std::string_view request_header) {
     if (line.back() == '\r')
       line.pop_back();
     size_t colon_pos = line.find(':');
-    if (colon_pos != std::string::npos) {
+    if (colon_pos != std::string_view::npos) {
       std::string key = line.substr(0, colon_pos);
       std::string value = line.substr(colon_pos + 1);
 
@@ -102,6 +269,9 @@ bool HttpRequest::parse_request_header(const std::string_view request_header) {
       key.erase(key.find_last_not_of(" \t") + 1);
       value.erase(0, value.find_first_not_of(" \t"));
       value.erase(value.find_last_not_of(" \t") + 1);
+
+      // 将key转换为小写
+      std::transform(key.begin(), key.end(), key.begin(), ::tolower);
 
       headers_[key] = value;
     }
@@ -120,12 +290,20 @@ bool HttpRequest::parse_request_body(const std::string_view request_body) {
 HttpRequest::Method
 HttpRequest::transfer_to_method(const std::string_view method) {
   std::cout << "转换方法: [" << method << "]" << std::endl;
-  if (method == "GET") {
+  if (method == "GET")
     return Method::GET;
-  }
-  if (method == "POST") {
+  if (method == "POST")
     return Method::POST;
-  }
+  if (method == "PUT")
+    return Method::PUT;
+  if (method == "DELETE")
+    return Method::DELETE;
+  if (method == "HEAD")
+    return Method::HEAD;
+  if (method == "OPTIONS")
+    return Method::OPTIONS;
+  if (method == "PATCH")
+    return Method::PATCH;
   std::cout << "未知方法: " << method << std::endl;
   return Method::UNKNOWN;
 }
@@ -141,13 +319,34 @@ HttpRequest::transfer_to_version(const std::string_view version) {
   std::cout << "未知版本: " << version << std::endl;
   return Version::UNKNOWN;
 }
+std::string_view trim_whitespace(std::string_view s) {
+  auto is_not_space = [](unsigned char c) { return !std::isspace(c); };
+
+  const char *first = s.data();
+  const char *last = s.data() + s.size();
+
+  // 找第一个非空白
+  while (first != last && std::isspace(static_cast<unsigned char>(*first)))
+    ++first;
+
+  // 找最后一个非空白
+  while (first != last && std::isspace(static_cast<unsigned char>(*(last - 1))))
+    --last;
+
+  return {first, static_cast<std::size_t>(last - first)};
+}
 std::string HttpRequest::get_header(const std::string &key) const {
+  std::string lower_key = key;
+  std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(),
+                 ::tolower);
   auto it = headers_.find(key);
   return (it != headers_.end()) ? it->second : "";
 }
 bool HttpRequest::keep_alive() const {
   if (version_ == Version::HTTP1_1) {
     std::string connection = get_header("Connection");
+    std::transform(connection.begin(), connection.end(), connection.begin(),
+                   ::tolower);
     return connection != "close";
   }
 
@@ -160,6 +359,7 @@ size_t HttpRequest::get_content_length() const {
 void HttpRequest::reset() {
   method_ = Method::UNKNOWN;
   path_.clear();
+  query_string_.clear();
   version_ = Version::UNKNOWN;
   headers_.clear();
   body_.clear();
