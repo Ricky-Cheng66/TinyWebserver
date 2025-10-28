@@ -52,12 +52,9 @@ public:
 
 private:
   //状态机处理
-  std::error_code handle_start(std::string_view data, size_t length,
-                               size_t &consumed);
-  std::error_code handle_request_line(std::string_view data, size_t length,
-                                      size_t &consumed);
-  std::error_code handle_headers(std::string_view data, size_t length,
-                                 size_t &consumed);
+  std::error_code handle_start(size_t &consumed);
+  std::error_code handle_request_line(std::string_view data, size_t &consumed);
+  std::error_code handle_headers(std::string_view data, size_t &consumed);
   std::error_code handle_body(std::string_view data, size_t length,
                               size_t &consumed);
   //解析步骤
