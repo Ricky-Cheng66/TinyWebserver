@@ -2,8 +2,8 @@
 #include "socket.h"
 #include <iostream>
 #include <sys/epoll.h>
-#include <unistd.h>
 #include <system_error>
+#include <unistd.h>
 Epoll::~Epoll() {
   if (epfd_ != -1) {
     close(epfd_);
@@ -24,28 +24,55 @@ bool Epoll::initialize() {
   return true;
 }
 
-bool Epoll::add_epoll_server(int fd) {
+bool Epoll::add_epoll(int fd, uint32_t event) {
   std::lock_guard<std::mutex> lock(epoll_mutex_);
   struct epoll_event ev {};
   ev.data.fd = fd;
-  ev.events = EPOLLIN;
-  if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev)) {
+  ev.events = event;
+  if (epoll_ctl(epfd_, EPOLL_CTL_ADD, fd, &ev) == -1) {
     std::error_code ec(errno, std::system_category());
-    std::cerr << "epoll_ctl add failed..." << ec.message() <<  std::endl;
+    std::cerr << "epoll_ctl add failed..." << ec.message() << std::endl;
     return false;
   }
   return true;
 }
 bool Epoll::delete_epoll(int fd) {
   std::lock_guard<std::mutex> lock(epoll_mutex_);
-  if (epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr)) {
+  // 检查文件描述符是否有效
+  if (fd <= 0) {
+    return false;
+  }
+  if (epoll_ctl(epfd_, EPOLL_CTL_DEL, fd, nullptr) == -1) {
+    // 忽略常见的无害错误
+    if (errno == ENOENT || // No such file or directory
+        errno == EBADF) {  // Bad file descriptor
+      return true;
+    }
     std::error_code ec(errno, std::system_category());
     std::cerr << "epoll_ctl del failed..." << ec.message() << std::endl;
     return false;
   }
   return true;
 }
-void Epoll::modify_epoll() {}
+bool Epoll::modify_epoll(int fd, uint32_t event) {
+  std::lock_guard<std::mutex> lock(epoll_mutex_);
+  // 检查文件描述符是否有效
+  if (fd <= 0) {
+    return false;
+  }
+  struct epoll_event ev {};
+  ev.events = event;
+  ev.data.fd = fd;
+  std::cout << "DEBUG modify_epoll: fd=" << fd << ", events=0x" << std::hex
+            << event << std::dec << std::endl;
+  if (epoll_ctl(epfd_, EPOLL_CTL_MOD, fd, &ev) == -1) {
+    std::error_code ec(errno, std::system_category());
+    std::cerr << "epoll_ctl mod failed..." << ec.message() << std::endl;
+    return false;
+  }
+  std::cout << "DEBUG modify_epoll: success" << std::endl;
+  return true;
+}
 int Epoll::wait_events(struct epoll_event *evs, int timeout) {
   if (epfd_ < 0) {
     return -1;

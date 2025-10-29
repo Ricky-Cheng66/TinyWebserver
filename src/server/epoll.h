@@ -1,6 +1,6 @@
 #pragma once
-#include <sys/epoll.h>
 #include <mutex>
+#include <sys/epoll.h>
 class Epoll {
 public:
   //单例访问方法
@@ -13,9 +13,9 @@ public:
   Epoll &operator=(const Epoll &) = delete;
   //成员函数
   bool initialize();
-  bool add_epoll_server(int fd);
+  bool add_epoll(int fd, uint32_t event);
   bool delete_epoll(int fd);
-  void modify_epoll();
+  bool modify_epoll(int fd, uint32_t event);
   int wait_events(struct epoll_event *evs, int timeout);
   //获取内部状态
   int get_epoll_fd() const { return epfd_; }

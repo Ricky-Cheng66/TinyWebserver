@@ -42,7 +42,7 @@ public:
   size_t get_content_length() const;
 
   //路径解析
-  std::optional<std::filesystem::path> parse_request_path();
+  std::optional<std::filesystem::path> parse_request_path() const;
   // std::optional<fs::path> parse_request_path(std::optional<std::string>
   // path);
 
@@ -55,8 +55,7 @@ private:
   std::error_code handle_start(size_t &consumed);
   std::error_code handle_request_line(std::string_view data, size_t &consumed);
   std::error_code handle_headers(std::string_view data, size_t &consumed);
-  std::error_code handle_body(std::string_view data, size_t length,
-                              size_t &consumed);
+  std::error_code handle_body(std::string_view data, size_t &consumed);
   //解析步骤
   bool parse_request_line(const std::string_view request_line);
   bool parse_request_header(const std::string_view request_header);

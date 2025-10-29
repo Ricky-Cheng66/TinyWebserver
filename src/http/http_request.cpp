@@ -12,27 +12,34 @@ std::error_code HttpRequest::parse_chunk(std::string_view data, size_t length) {
     return std::make_error_code(std::errc::invalid_argument);
   }
   // 添加到缓冲区
-  buffer_.append(data, length);
+  buffer_.append(data.data(), length);
   size_t consumed = 0;
   std::error_code ec;
-
+  std::cout << "DEBUG parse_chunk: state=" << static_cast<int>(state_)
+            << ", buffer size=" << buffer_.length() << std::endl;
   while (consumed < buffer_.length() && state_ != ParseState::COMPLETE &&
          state_ != ParseState::ERROR) {
     size_t prev_consumed = consumed;
-
+    ParseState prev_state = state_;
+    std::cout << "DEBUG: Processing state=" << static_cast<int>(state_)
+              << ", consumed=" << consumed << std::endl;
     switch (state_) {
     case ParseState::START:
+      std::cout << "DEBUG: Calling handle_start" << std::endl;
       ec = handle_start(consumed);
       break;
     case ParseState::REQUEST_LINE:
-      ec = handle_request_line(buffer_.data() + consumed, consumed);
+      std::cout << "DEBUG: Calling handle_request_line" << std::endl;
+      ec = handle_request_line(std::string_view(buffer_).substr(consumed),
+                               consumed);
       break;
     case ParseState::HEADERS:
-      ec = handle_headers(buffer_.data() + consumed, consumed);
+      std::cout << "DEBUG: Calling handle_headers" << std::endl;
+      ec = handle_headers(std::string_view(buffer_).substr(consumed), consumed);
       break;
     case ParseState::BODY:
-      ec = handle_body(buffer_.data() + consumed, buffer_.length() - consumed,
-                       consumed);
+      std::cout << "DEBUG: Calling handle_body" << std::endl;
+      ec = handle_body(std::string_view(buffer_).substr(consumed), consumed);
       break;
     default:
       ec = std::make_error_code(std::errc::invalid_argument);
@@ -43,9 +50,17 @@ std::error_code HttpRequest::parse_chunk(std::string_view data, size_t length) {
       state_ = ParseState::ERROR;
       return ec;
     }
+    // 🎯 关键修复：如果状态改变了，即使没有消费数据也要继续
+    if (consumed == prev_consumed && state_ != prev_state) {
+      std::cout << "DEBUG: State changed from " << static_cast<int>(prev_state)
+                << " to " << static_cast<int>(state_) << ", continuing"
+                << std::endl;
+      continue; // 状态改变了，继续处理下一个状态
+    }
 
     // 如果没有消费任何数据，避免无限循环
     if (consumed == prev_consumed) {
+      std::cout << "DEBUG: No data consumed, breaking" << std::endl;
       break;
     }
   }
@@ -54,7 +69,7 @@ std::error_code HttpRequest::parse_chunk(std::string_view data, size_t length) {
   if (consumed > 0) {
     buffer_.erase(0, consumed);
   }
-
+  std::cout << "DEBUG: Final state=" << static_cast<int>(state_) << std::endl;
   return ec;
 }
 std::error_code HttpRequest::handle_start(size_t &consumed) {
@@ -65,6 +80,10 @@ std::error_code HttpRequest::handle_start(size_t &consumed) {
 
 std::error_code HttpRequest::handle_request_line(std::string_view data,
                                                  size_t &consumed) {
+  std::cout << "=== NEW REQUEST ===" << std::endl;
+  std::cout << "DEBUG: Method: " << static_cast<int>(method_)
+            << ", Path: " << path_
+            << ", Version: " << static_cast<int>(version_) << std::endl;
   // 查找行结束
   const size_t line_end_pos = data.find('\n');
   if (line_end_pos == std::string_view::npos) {
@@ -102,29 +121,58 @@ std::error_code HttpRequest::handle_request_line(std::string_view data,
 
 std::error_code HttpRequest::handle_headers(std::string_view data,
                                             size_t &consumed) {
+  std::cout << "DEBUG handle_headers: data length=" << data.length()
+            << std::endl;
+  std::cout << "DEBUG data content: [" << data << "]" << std::endl;
   size_t pos = 0;
   while (pos < data.length()) {
     // 查找行结束
     size_t line_end_pos = data.find('\n', pos);
     if (line_end_pos == std::string_view::npos) {
+      std::cout << "DEBUG: No more lines found" << std::endl;
       break; // 需要更多数据
     }
 
     std::string_view line = data.substr(pos, line_end_pos - pos);
+    std::cout << "DEBUG: Line found: pos=" << pos << ", end=" << line_end_pos
+              << ", line length=" << line.length() << ", line content: [";
+    // 打印每个字符的ASCII值
+    for (char c : line) {
+      std::cout << (c >= 32 && c < 127 ? c : '?');
+    }
+    std::cout << "]" << std::endl;
+
+    // 检查为什么line被认为是空的
+    std::cout << "DEBUG: line.empty() = " << line.empty()
+              << ", line.length() = " << line.length() << std::endl;
     if (!line.empty() && line.back() == '\r') {
+
       line.remove_suffix(1); // 去掉回车符
+      std::cout << "DEBUG: Removed \\r, new line length: " << line.length()
+                << std::endl;
+      std::cout << "DEBUG: Line found: pos=" << pos << ", end=" << line_end_pos
+                << ", line length=" << line.length() << ", line content: [";
+      // 打印每个字符的ASCII值
+      for (char c : line) {
+        std::cout << (c >= 32 && c < 127 ? c : '?');
+      }
+      std::cout << "]" << std::endl;
     }
 
     // 空行表示头部结束
     if (line.empty()) {
-      consumed = line_end_pos + 1; //消费空行+'\n'
-
+      std::cout << "DEBUG: EMPTY LINE DETECTED! Moving to next state."
+                << std::endl;
+      // 检查下一个字符是否是 \n（如果是 \r\n\r\n 的情况）
+      consumed = line_end_pos + 1; // 直接消费这一行（包括\n）
       // 检查是否有body
       content_length_ = get_content_length();
       if (content_length_ > 0) {
         state_ = ParseState::BODY;
+        std::cout << "DEBUG: Moving to BODY state" << std::endl;
       } else {
         state_ = ParseState::COMPLETE;
+        std::cout << "DEBUG: Moving to COMPLETE state" << std::endl;
       }
       return {};
     }
@@ -133,28 +181,36 @@ std::error_code HttpRequest::handle_headers(std::string_view data,
     size_t colon_pos = line.find(':');
     if (colon_pos != std::string_view::npos) {
       std::string_view key_view = line.substr(0, colon_pos);
+      std::cout << "DEBUG: key_view content: " << key_view << std::endl;
       std::string_view value_view = line.substr(colon_pos + 1);
+      std::cout << "DEBUG: value_view content: " << value_view << std::endl;
 
       // 清理空格
       key_view = trim_whitespace(key_view);
       value_view = trim_whitespace(value_view);
 
       //转换键名为小写并存储
-      std::string key = to_lower_case(key_view);
-      headers_[std::move(key)] = std::string(value_view);
+      std::string key_str = to_lower_case(key_view);
+      std::cout << "DEBUG: key_str content: " << key_str << std::endl;
+      std::string value_str(value_view);
+      headers_[key_str] = value_str;
+      std::cout << "DEBUG: Parsed header: " << key_str << " = " << value_str
+                << std::endl;
     }
     //移动到下一行
     pos = line_end_pos + 1;
     consumed = pos;
+    std::cout << "DEBUG: Moving to next line, new pos=" << pos << std::endl;
   }
-
+  std::cout << "DEBUG: Exiting handle_headers, no empty line found"
+            << std::endl;
   return {};
 }
 
-std::error_code HttpRequest::handle_body(std::string_view data, size_t length,
+std::error_code HttpRequest::handle_body(std::string_view data,
                                          size_t &consumed) {
   size_t needed = content_length_ - body_.length();
-  size_t to_copy = std::min(needed, length);
+  size_t to_copy = std::min(needed, data.length());
 
   body_.append(data, to_copy);
   consumed = to_copy;
@@ -323,7 +379,7 @@ HttpRequest::transfer_to_version(const std::string_view version) {
   return Version::UNKNOWN;
 }
 std::string HttpRequest::to_lower_case(std::string_view str) {
-  std::string result = str.data();
+  std::string result(str);
   std::transform(result.begin(), result.end(), result.begin(), ::tolower);
   return result;
 }
@@ -370,7 +426,7 @@ void HttpRequest::reset() {
   content_length_ = 0;
   current_header_name_.clear();
 }
-std::optional<fs::path> HttpRequest::parse_request_path() {
+std::optional<fs::path> HttpRequest::parse_request_path() const {
   if (path_.empty()) {
     std::cout << " 错误 路径为空 " << std::endl;
     return std::nullopt;
